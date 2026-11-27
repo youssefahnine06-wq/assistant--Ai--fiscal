@@ -1,28 +1,29 @@
-
 from pathlib import Path
 from pypdf import PdfReader
 from pdf2image import convert_from_path
 import pytesseract
 
+from text_processor import clean_text, split_text
 
-def extract_text_from_pdf(pdf_path):
+
+def extract_pages_from_pdf(pdf_path):
     reader = PdfReader(pdf_path)
-    full_text = ""
+    pages = []
 
-    # Première méthode : lecture classique avec pypdf
     for page_number, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
 
         if text.strip():
-            full_text += f"\n--- Page {page_number} ---\n"
-            full_text += text
+            pages.append({
+                "page": page_number,
+                "content": text
+            })
 
-    # Deuxième méthode : OCR si le texte extrait est insuffisant
-    if len(full_text.strip()) < 100:
+    if sum(len(page["content"]) for page in pages) < 100:
         print(f"OCR activé pour : {pdf_path.name}")
 
         images = convert_from_path(str(pdf_path))
-        full_text = ""
+        pages = []
 
         for page_number, image in enumerate(images, start=1):
             text = pytesseract.image_to_string(
@@ -31,32 +32,47 @@ def extract_text_from_pdf(pdf_path):
             )
 
             if text.strip():
-                full_text += f"\n--- Page {page_number} ---\n"
-                full_text += text
+                pages.append({
+                    "page": page_number,
+                    "content": text
+                })
 
-    return full_text
+    return pages
 
 
 def load_all_pdfs(folder="documents"):
     documents = []
-    
-    # Recherche des PDF dans les dossiers A, B et C
+
     pdf_files = Path(folder).rglob("*.pdf")
-    
+
     for pdf_file in pdf_files:
         print(f"\nLecture du document : {pdf_file.name}")
 
         try:
-            text = extract_text_from_pdf(pdf_file)
+            pages = extract_pages_from_pdf(pdf_file)
 
-            documents.append({
-                "filename": pdf_file.name,
-                "content": text
-            })
+            for page_data in pages:
+                cleaned_text = clean_text(page_data["content"])
+                chunks = split_text(cleaned_text)
 
-            print(f"Nombre de caractères extraits : {len(text)}")
+                for chunk_number, chunk in enumerate(chunks, start=1):
+                    documents.append({
+                        "filename": pdf_file.name,
+                        "category": pdf_file.parent.name,
+                        "page": page_data["page"],
+                        "chunk_id": (
+                            f"{pdf_file.stem}_"
+                            f"p{page_data['page']}_"
+                            f"c{chunk_number}"
+                        ),
+                        "content": chunk
+                    })
+
+            print(f"Nombre de pages lues : {len(pages)}")
 
         except Exception as error:
             print(f"Erreur avec {pdf_file.name} : {error}")
+
+    print(f"\nNombre total de segments créés : {len(documents)}")
 
     return documents
